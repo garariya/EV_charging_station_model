@@ -48,11 +48,9 @@ if st.button('Predict'):
         input_data['country_code'] = le.transform(input_data['country_code'])
     except ValueError:
         st.warning(f"Country code '{country_code_input}' not recognized. Using a default encoded value for prediction.")
-        # Fallback for unrecognized country codes: could use a common code, or average, etc.
-        # A better approach might involve an 'Unknown' category during training and using that value here.
-        # For this context, we will use a placeholder or handle explicitly if needed.
-        # For now, let's just make it clear it's not recognized and will likely result in a default/arbitrary prediction.
-        input_data['country_code'] = -1 # Or a specific encoded value for 'Unknown' from training if applicable
+        # Fallback for unrecognized country codes: a better approach might involve an 'Unknown' category during training
+        # For now, we'll assign a value that might lead to a generic prediction or specific error in model if not handled.
+        input_data['country_code'] = -1 # Assigning -1 as an example; needs careful consideration for deployment
 
     # Scale numerical features
     num_cols = ['latitude', 'longitude', 'ports']
