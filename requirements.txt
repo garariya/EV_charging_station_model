@@ -8,3 +8,10 @@ matplotlib
 joblib
 pyngrok
 google-generativeai
+langchain
+langchain-community
+langgraph
+langchain-groq
+langchain-google-genai
+langchain-chroma
+sentence-transformers

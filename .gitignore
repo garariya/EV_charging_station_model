@@ -1,0 +1,6 @@
+chroma_db/
+test_segfault.py
+patch_models.py
+__pycache__/
+*.pyc
+.DS_Store

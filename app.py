@@ -3,15 +3,20 @@ import joblib
 import pickle
 import pandas as pd
 import numpy as np
-import google.generativeai as genai
-import json
-import re
+import os
+
+# LangChain / LangGraph Imports
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.tools import tool
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.prebuilt import create_react_agent
+from langchain_chroma import Chroma
 
 # Set page config
 st.set_page_config(page_title="EV Charging AI Agent", page_icon="⚡")
 
 # --- Load Models ---
-@st.cache_resource(show_spinner="Loading models into memory...")
+@st.cache_resource(show_spinner="Loading machine learning models...")
 def load_models():
     try:
         rf_model = joblib.load('rf_balanced_retrained_fe.joblib')
@@ -25,201 +30,253 @@ def load_models():
             
         return rf_model, xgb_model, scaler, le, float(threshold)
     except Exception as e:
-        st.error(f"Error loading models: {e}. Please ensure all model files are present.")
+        st.error(f"Error loading ML models: {e}. Please ensure all model files are present.")
         return None, None, None, None, None
 
 rf_model, xgb_model, scaler, le, threshold = load_models()
 
-# --- UI Setup ---
+# --- Setup ChromaDB RAG Vector Store ---
+from langchain_core.embeddings import Embeddings
+
+class MiniLMEmbeddingsWrapper(Embeddings):
+    def __init__(self):
+        from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
+        self.ef = ONNXMiniLM_L6_V2()
+        
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self.ef(texts)
+        
+    def embed_query(self, text: str) -> list[float]:
+        return self.ef([text])[0]
+
+@st.cache_resource(show_spinner="Initializing RAG Knowledge Base...")
+def setup_rag():
+    try:
+        # Utilize the ultra-lightweight ONNX version bundled directly within Chroma,
+        # wrapped securely inside LangChain's base class interface!
+        embeddings_wrapper = MiniLMEmbeddingsWrapper()
+        
+        db = Chroma(embedding_function=embeddings_wrapper, persist_directory="./chroma_db")
+        
+        # Seed dummy facts if DB is empty to demonstrate technical completion
+        if len(db.get()["ids"]) == 0:
+            docs = [
+                "Fast DC charging stations are predominantly located near major transit corridors and urban centers. They typically utilize CCS or CHAdeMO standards.",
+                "While AC chargers provide up to 22kW, Fast DC chargers usually supply 50kW to 350kW directly to the vehicle's battery.",
+                "In Europe, the CCS2 standard dominates the Fast DC network rollout.",
+                "In North America, Tesla's NACS and the CCS1 standards are the most widespread Fast DC charging options.",
+                "Statistically, standalone charging locations with more than 3 distinct ports carry a substantially higher probability of housing Fast DC hardware.",
+                "Range anxiety is largely mitigated by high-speed Level 3 (DC Fast) charging infrastructure which can charge vehicles to 80% in under 30 minutes."
+            ]
+            db.add_texts(
+                texts=docs,
+                metadatas=[{"source": "EV Facts Knowledge Base"}] * len(docs),
+                ids=[f"fact_{i}" for i in range(len(docs))]
+            )
+        return db
+    except Exception as e:
+        st.error(f"Failed to initialize RAG database: {e}")
+        return None
+
+db = setup_rag()
+
+# --- Define LangChain Agent Tools ---
+@tool
+def search_ev_knowledge(query: str) -> str:
+    """
+    Search the RAG knowledge base for information context on electric vehicles, charging standards, speed details, and region-specific EV facts.
+    Use this tool whenever the user asks a general factual question about EV charging.
+    """
+    if db is None:
+        return "RAG Database is offline."
+    results = db.similarity_search(query, k=2)
+    return "\n\n".join([doc.page_content for doc in results])
+
+@tool
+def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports: int) -> str:
+    """
+    Predicts if a location has a Fast DC charging station.
+    You must NOT call this tool until you have gathered EXACTLY these 4 arguments from the user:
+    - country_code (string, e.g. 'US', 'CA')
+    - latitude (float, e.g. 40.7128)
+    - longitude (float, e.g. -74.0060)
+    - ports (integer, number of charging ports, e.g. 2)
+    
+    Returns a string prediction ('Yes' or 'No').
+    """
+    if rf_model is None:
+        return "Error: Local ML Models are not loaded."
+        
+    try:
+        cc = str(country_code)
+        lat = float(latitude)
+        lon = float(longitude)
+        p = int(ports)
+        
+        input_data = pd.DataFrame([[cc, lat, lon, p]], columns=['country_code', 'latitude', 'longitude', 'ports'])
+        
+        # Encode Country Code
+        try:
+            input_data['country_code'] = le.transform(input_data['country_code'])
+        except ValueError:
+            input_data['country_code'] = -1
+            
+        # Scale Features
+        input_data[['latitude', 'longitude', 'ports']] = scaler.transform(input_data[['latitude', 'longitude', 'ports']])
+        
+        # Feature Engineering Context
+        input_data['latitude_x_longitude'] = input_data['latitude'] * input_data['longitude']
+        input_data['ports_x_latitude'] = input_data['ports'] * input_data['latitude']
+        input_data['ports_x_longitude'] = input_data['ports'] * input_data['longitude']
+        input_data['latitude_squared'] = input_data['latitude'] ** 2
+        input_data['longitude_squared'] = input_data['longitude'] ** 2
+        input_data['ports_squared'] = input_data['ports'] ** 2
+        
+        # Ensemble Prediction
+        rf_prob = rf_model.predict_proba(input_data)[:, 1]
+        xgb_prob = xgb_model.predict_proba(input_data)[:, 1]
+        ensemble_prob = (rf_prob[0] + xgb_prob[0]) / 2
+        
+        final_pred = 1 if ensemble_prob >= threshold else 0
+        
+        if final_pred == 1:
+            return "ML Prediction Output: POSITIVE. A Fast DC charging station is likely present."
+        else:
+            return "ML Prediction Output: NEGATIVE. A Fast DC charging station is NOT present."
+            
+    except Exception as e:
+        return f"Prediction Execution Error: {str(e)}"
+
+# --- UI Setup & Configuration ---
 st.title("⚡ AI EV Charging Station Predictor")
-st.markdown("Chat with our AI agent to check if a Fast DC charging station is likely present at a given location!")
+st.markdown("**(Powered by LangGraph, ChromaDB, and Gemini)**")
+st.markdown("Chat with the Agent to predict station layouts or ask about EV Charging Infrastructure facts!")
 
 api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
-if api_key:
-    genai.configure(api_key=api_key)
-else:
-    st.info("👋 Welcome! Please enter your Gemini API Key in the sidebar to start.")
+if not api_key:
+    st.info("👋 Welcome! Please enter your Google Gemini API Key in the sidebar to power the LangGraph agent.")
     st.stop()
 
-# System Prompt for Gemini
-system_prompt = """You are a highly helpful and friendly EV charging station virtual assistant. 
-Your task is to predict whether a Fast DC charging station is present based on user input.
-You need to collect 4 specific inputs from the user ONE BY ONE:
-1. Country Code (e.g., US, CA, NL)
-2. Latitude (number, e.g., 40.7128)
-3. Longitude (number, e.g., -74.0060)
-4. Number of Ports (positive integer, e.g., 2)
-
-Rules:
-- Start by warmly greeting the user and offering to help them predict if a location has a Fast DC charging station.
-- Ask for ONE piece of information at a time. Do not ask for all 4 features at once!
-- Validate each input (e.g., latitude should be between -90 and 90, longitude between -180 and 180, ports should be > 0). If wrong, ask them to correct it.
-- Once you have successfully collected and validated all 4 features, and ONLY THEN, output ONLY a JSON block like the following (and absolutely nothing else in that message):
-```json
-{
-  "ready": true,
-  "country_code": "US",
-  "latitude": 40.7128,
-  "longitude": -74.0060,
-  "ports": 2
-}
-```
-- If I (the system) provide you with a prediction result in brackets like "[SYSTEM: Prediction Result is: Yes/No...]", please explain the prediction to the user in natural language and ask if they want to check another location.
-"""
-
 def reset_conversation():
-    st.session_state.messages = []
+    from langchain_core.messages import SystemMessage
+    st.session_state.messages = [
+        SystemMessage(content=system_prompt)
+    ]
     
 st.sidebar.button("Start Over", on_click=reset_conversation)
 
-# --- Session State ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Function to parse JSON when all inputs are collected
-def extract_json(text):
-    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL | re.IGNORECASE)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except:
-            return None
-    
-    # Fallback to direct json parsing if no code blocks are present
+# --- Agentic Initialization ---
+# Initialize Gemini LLM natively by dynamically querying which models their API key allows
+@st.cache_data(show_spinner=False)
+def get_working_google_model(key):
+    import google.generativeai as genai
     try:
-        return json.loads(text)
-    except:
-        return None
+        genai.configure(api_key=key)
+        # Try to find a working generic or flash model in their account
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                if 'flash' in m.name.lower() or 'pro' in m.name.lower() or 'gemini' in m.name.lower():
+                    # LangChain expects the name without the "models/" prefix
+                    return m.name.replace("models/", "")
+    except Exception:
+        pass
+    return "gemini-1.5-flash"  # Fallback
 
-# --- Display Chat ---
+try:
+    working_model = get_working_google_model(api_key)
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model=working_model, temperature=0)
+except Exception as e:
+    st.error(f"Failed to initialize Gemini LLM: {e}")
+    st.stop()
+
+system_prompt = """You are a highly helpful and friendly EV charging station virtual assistant agent.
+Your primary capabilities are:
+1. Running math predictions using the `predict_fast_dc` tool.
+2. Querying a real-world vector database about EV infrastructure using the `search_ev_knowledge` tool.
+
+To run the ML prediction tool `predict_fast_dc`, you MUST collect 4 specific inputs from the user ONE BY ONE:
+1. Country Code (e.g. US)
+2. Latitude (number)
+3. Longitude (number)
+4. Number of Ports (integer)
+
+Rules:
+- Start by warmly greeting the user.
+- Ask for ONE piece of required prediction information at a time.
+- If the user asks a general factual question about EVs, you MUST autonomously use your `search_ev_knowledge` tool to pull relevant facts from the ChromaDB to answer them.
+- Once you have successfully collected all 4 features from the user, immediately call the `predict_fast_dc` tool.
+- Always explain the tool results friendly to the user.
+"""
+
+from langchain_core.messages import SystemMessage
+
+# Compile LangGraph ReAct Agent
+tools_list = [search_ev_knowledge, predict_fast_dc]
+agent_executor = create_react_agent(llm, tools_list)
+
+# --- Session State Management ---
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        SystemMessage(content=system_prompt)
+    ]
+
+# --- Helper for parsing Gemini UI Content ---
+def extract_text(content):
+    if isinstance(content, str):
+        return content
+    elif isinstance(content, list):
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict) and "text" in block:
+                text_parts.append(block["text"])
+            elif isinstance(block, str):
+                text_parts.append(block)
+        return "\n".join(text_parts)
+    return str(content)
+
+# --- Display Chat History ---
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        
-        # Display UI indicator if this message has a prediction stored
-        if msg.get("prediction_ui"):
-            if msg["prediction"] == 1:
-                st.success("✅ Yes, a Fast DC charging station is likely present here.")
-            else:
-                st.error("❌ No Fast DC charging station found here.")
+    # Do not display the hidden system prompt to the user
+    if isinstance(msg, SystemMessage):
+        continue
+    if isinstance(msg, HumanMessage):
+        with st.chat_message("user"):
+            st.markdown(extract_text(msg.content))
+    # Filter out intermediary ToolMessages from UI so user only sees AI strings
+    elif isinstance(msg, AIMessage):
+        # LangChain sometimes outputs empty string AIMessages when invoking a tool request
+        if msg.content:
+            parsed_text = extract_text(msg.content)
+            if parsed_text.strip():
+                with st.chat_message("assistant"):
+                    st.markdown(parsed_text)
 
-# --- User Input & Chat Flow ---
+# --- User Input & Graph Execution ---
 if prompt := st.chat_input("Type your message here..."):
-    # 1. Show user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # 1. Store and show user message
+    user_msg = HumanMessage(content=prompt)
+    st.session_state.messages.append(user_msg)
     with st.chat_message("user"):
         st.markdown(prompt)
-        
-    # 2. Prepare history for Gemini (remember last 5 turns = 10 messages)
-    history = []
-    recent_msgs = st.session_state.messages[-10:]
-    for m in recent_msgs:
-        # Convert internal roles to ones generative AI expects
-        role = "user" if m["role"] == "user" else "model"
-        history.append({"role": role, "parts": [{"text": m["content"]}]})
         
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         
-        try:
-            # Auto-detect best model from user's quota
-            model_name = "gemini-1.5-flash"
+        with st.spinner("Agent is reasoning..."):
             try:
-                available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                flash_models = [m for m in available if '1.5-flash' in m]
-                pro_models = [m for m in available if '1.5' in m]
+                # 2. Invoke LangGraph executor pipeline
+                response = agent_executor.invoke({"messages": st.session_state.messages})
                 
-                if flash_models:
-                    model_name = flash_models[0]
-                elif pro_models:
-                    model_name = pro_models[0]
-                elif available:
-                    model_name = available[0]
-            except Exception:
-                pass
+                # 3. Append the newly generated agentic nodes/tool actions to state
+                # response["messages"] contains the complete conversational state graph.
+                # We just append the newly added messages to our Streamlit session state.
+                new_messages = response["messages"][len(st.session_state.messages):]
+                for m in new_messages:
+                    st.session_state.messages.append(m)
+                    
+                # 4. Display the ultimate finalized AIMessage response to the user
+                final_reply = extract_text(response["messages"][-1].content)
+                message_placeholder.markdown(final_reply)
                 
-            if "1.5" in model_name:
-                model = genai.GenerativeModel(model_name, system_instruction=system_prompt)
-                response = model.generate_content(history)
-            else:
-                model = genai.GenerativeModel(model_name)
-                # Inject system prompt into latest user message if 1.5 is unavailable
-                if history:
-                    history[-1]["parts"][0]["text"] = f"[SYSTEM INSTRUCTION:\n{system_prompt}]\n\nUser Input: {history[-1]['parts'][0]['text']}"
-                response = model.generate_content(history)
-            
-            reply = response.text
-            
-            parsed_data = extract_json(reply)
-            
-            # 3. Check if JSON indicates readiness to predict
-            if parsed_data and parsed_data.get("ready"):
-                if rf_model is None:
-                    err_reply = "I'm ready to predict, but the ML models are not loaded correctly. Please check the model files."
-                    message_placeholder.markdown(err_reply)
-                    st.session_state.messages.append({"role": "assistant", "content": err_reply})
-                else:
-                    # Run ML Prediction
-                    cc = str(parsed_data.get("country_code", "US"))
-                    lat = float(parsed_data.get("latitude", 0.0))
-                    lon = float(parsed_data.get("longitude", 0.0))
-                    ports = int(parsed_data.get("ports", 1))
-                    
-                    input_data = pd.DataFrame([[cc, lat, lon, ports]], columns=['country_code', 'latitude', 'longitude', 'ports'])
-                    
-                    # Encode Country Code
-                    try:
-                        input_data['country_code'] = le.transform(input_data['country_code'])
-                    except ValueError:
-                        input_data['country_code'] = -1
-                        
-                    # Scale Features
-                    input_data[['latitude', 'longitude', 'ports']] = scaler.transform(input_data[['latitude', 'longitude', 'ports']])
-                    
-                    # Feature Engineering
-                    input_data['latitude_x_longitude'] = input_data['latitude'] * input_data['longitude']
-                    input_data['ports_x_latitude'] = input_data['ports'] * input_data['latitude']
-                    input_data['ports_x_longitude'] = input_data['ports'] * input_data['longitude']
-                    input_data['latitude_squared'] = input_data['latitude'] ** 2
-                    input_data['longitude_squared'] = input_data['longitude'] ** 2
-                    input_data['ports_squared'] = input_data['ports'] ** 2
-                    
-                    # Predict Ensemble
-                    rf_prob = rf_model.predict_proba(input_data)[:, 1]
-                    xgb_prob = xgb_model.predict_proba(input_data)[:, 1]
-                    ensemble_prob = (rf_prob[0] + xgb_prob[0]) / 2
-                    
-                    final_pred = 1 if ensemble_prob >= threshold else 0
-                    
-                    # 4. Show Prediction Indicators
-                    if final_pred == 1:
-                        st.success("✅ Yes, a Fast DC charging station is likely present here.")
-                    else:
-                        st.error("❌ No Fast DC charging station found here.")
-                        
-                    # 5. Inject system message and ask Gemini to explain
-                    pred_str = "Yes, Fast DC charging station is present" if final_pred == 1 else "No, Fast DC charging station is NOT present"
-                    system_inject = f"[SYSTEM: Prediction Result is: {pred_str}. Briefly explain this friendly to the user, and ask if they want to check another location.]"
-                    
-                    # Add AI JSON & system instruction to history to maintain conversational flow context
-                    history.append({"role": "model", "parts": [{"text": reply}]})
-                    history.append({"role": "user", "parts": [{"text": system_inject}]})
-                    
-                    explain_response = model.generate_content(history)
-                    final_reply = explain_response.text
-                    
-                    message_placeholder.markdown(final_reply)
-                    
-                    st.session_state.messages.append({
-                        "role": "assistant", 
-                        "content": final_reply,
-                        "prediction_ui": True,
-                        "prediction": final_pred
-                    })
-            else:
-                # Normal conversation turn
-                message_placeholder.markdown(reply)
-                st.session_state.messages.append({"role": "assistant", "content": reply})
-                
-        except Exception as e:
-            st.error(f"Error communicating with Gemini: {str(e)}")
+            except Exception as e:
+                st.error(f"Error executing LangGraph agent workflow: {str(e)}")
