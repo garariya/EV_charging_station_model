@@ -5,7 +5,7 @@ streamlit
 scikit-learn
 xgboost
 pandas
-numpy
+numpy<2.0
 seaborn
 matplotlib
 joblib
