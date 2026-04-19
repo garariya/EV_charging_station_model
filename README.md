@@ -22,7 +22,7 @@ The system uses a **ReAct (Reasoning and Acting)** pattern to interact with user
 | Layer | Technology |
 | :--- | :--- |
 | **Agent Framework** | LangGraph, LangChain |
-| **Core LLM** | Google Gemini (Gemini 1.5 Flash/Pro) |
+| **Core LLM** | Groq (Llama-3-70b-versatile) |
 | **Vector Database** | ChromaDB (RAG) |
 | **Machine Learning** | Scikit-learn, XGBoost |
 | **Data Manipulation** | Pandas, Numpy |
@@ -83,7 +83,7 @@ streamlit run app.py
 ---
 
 ## 🤖 How to Interact with the Agent
-1. **Provide a Gemini API Key**: In the sidebar, enter your Google Gemini API key to activate the agent.
+1. **Provide a Groq API Key**: In the sidebar, enter your Groq API key (from [console.groq.com](https://console.groq.com/)) to activate the agent.
 2. **Chat Naturally**: You can ask questions like *"What is the difference between AC and DC charging?"* and the agent will use the RAG tool.
 3. **Run a Prediction**: If you ask *"Can you predict a station for me?"*, the agent will begin a guided workflow, asking you for the location and port details one by one.
 4. **Final Verdict**: Once all data is collected, the agent will run the ensemble model and explain the result.

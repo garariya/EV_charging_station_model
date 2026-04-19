@@ -4,3 +4,4 @@ patch_models.py
 __pycache__/
 *.pyc
 .DS_Store
+.env

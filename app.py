@@ -1,4 +1,10 @@
 import streamlit as st
+import os
+from dotenv import load_dotenv
+
+# Load local environment variables
+load_dotenv()
+
 import joblib
 import pickle
 import pandas as pd
@@ -8,7 +14,7 @@ import os
 # LangChain / LangGraph Imports
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langgraph.prebuilt import create_react_agent
 from langchain_chroma import Chroma
 
@@ -149,12 +155,16 @@ def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports:
 
 # --- UI Setup & Configuration ---
 st.title("⚡ AI EV Charging Station Predictor")
-st.markdown("**(Powered by LangGraph, ChromaDB, and Gemini)**")
+st.markdown("**(Powered by LangGraph, ChromaDB, and Groq Llama-3)**")
 st.markdown("Chat with the Agent to predict station layouts or ask about EV Charging Infrastructure facts!")
 
-api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
+# --- API Key Management ---
+# Automate key retrieval from Streamlit Secrets or Environment Variables
+api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
+
 if not api_key:
-    st.info("👋 Welcome! Please enter your Google Gemini API Key in the sidebar to power the LangGraph agent.")
+    st.error("🔑 Groq API Key not found. Please add **GROQ_API_KEY** to your Streamlit Secrets or Environment Variables.")
+    st.info("Check the **.env.example** file for local setup instructions.")
     st.stop()
 
 def reset_conversation():
@@ -165,47 +175,19 @@ def reset_conversation():
     
 st.sidebar.button("Start Over", on_click=reset_conversation)
 
-# --- Agentic Initialization ---
-# Initialize Gemini LLM natively by dynamically querying which models their API key allows
-@st.cache_data(show_spinner=False)
-def get_working_google_model(key):
-    import google.generativeai as genai
-    try:
-        genai.configure(api_key=key)
-        # Try to find a working generic or flash model in their account
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                if 'flash' in m.name.lower() or 'pro' in m.name.lower() or 'gemini' in m.name.lower():
-                    # LangChain expects the name without the "models/" prefix
-                    return m.name.replace("models/", "")
-    except Exception:
-        pass
-    return "gemini-1.5-flash"  # Fallback
-
+# Initialize Groq LLM
 try:
-    working_model = get_working_google_model(api_key)
-    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model=working_model, temperature=0)
+    llm = ChatGroq(groq_api_key=api_key, model_name="llama-3.3-70b-versatile", temperature=0)
 except Exception as e:
-    st.error(f"Failed to initialize Gemini LLM: {e}")
+    st.error(f"Failed to initialize Groq LLM: {e}")
     st.stop()
 
-system_prompt = """You are a highly helpful and friendly EV charging station virtual assistant agent.
-Your primary capabilities are:
-1. Running math predictions using the `predict_fast_dc` tool.
-2. Querying a real-world vector database about EV infrastructure using the `search_ev_knowledge` tool.
+system_prompt = """You are a helpful and friendly EV charging station assistant.
+You help users in two ways:
+1. **Predict Fast DC Charging**: Using the `predict_fast_dc` tool. If a user wants a prediction, ask them for the Country Code, Latitude, Longitude, and Number of Ports one by one.
+2. **Find Facts**: Using the `search_ev_knowledge` tool to answer technical or general questions about EV infrastructure.
 
-To run the ML prediction tool `predict_fast_dc`, you MUST collect 4 specific inputs from the user ONE BY ONE:
-1. Country Code (e.g. US)
-2. Latitude (number)
-3. Longitude (number)
-4. Number of Ports (integer)
-
-Rules:
-- Start by warmly greeting the user.
-- Ask for ONE piece of required prediction information at a time.
-- If the user asks a general factual question about EVs, you MUST autonomously use your `search_ev_knowledge` tool to pull relevant facts from the ChromaDB to answer them.
-- Once you have successfully collected all 4 features from the user, immediately call the `predict_fast_dc` tool.
-- Always explain the tool results friendly to the user.
+Always be warm, professional, and concise. Use your tools automatically whenever you need data or facts to answer a user's request.
 """
 
 from langchain_core.messages import SystemMessage
