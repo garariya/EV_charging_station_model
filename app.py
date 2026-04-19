@@ -182,7 +182,7 @@ st.sidebar.button("Start Over", on_click=reset_conversation)
 
 # Initialize Google Gemini LLM
 try:
-    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash-latest", temperature=0)
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-3-flash-preview", temperature=0)
 except Exception as e:
     st.error(f"Failed to initialize Google Gemini LLM: {e}")
     st.stop()
