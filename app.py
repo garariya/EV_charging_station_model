@@ -1,32 +1,64 @@
 import streamlit as st
 import os
-
-# Fix for Protobuf TypeError on Streamlit Cloud (Python 3.13)
-# Forces pure-python implementation to avoid descriptor conflicts
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-
-from dotenv import load_dotenv
-
-# Load local environment variables
-load_dotenv()
-
+import time
 import joblib
 import pickle
 import pandas as pd
 import numpy as np
-import os
+
+# Fix for Protobuf TypeError on Streamlit Cloud
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
+from dotenv import load_dotenv
+load_dotenv()
 
 # LangChain / LangGraph Imports
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.prebuilt import create_react_agent
 from langchain_chroma import Chroma
+from langchain_core.tools import tool
 
 # Set page config
-st.set_page_config(page_title="EV Charging AI Agent", page_icon="⚡")
+st.set_page_config(page_title="EV Charging AI Agent", page_icon="⚡", layout="wide")
 
-# --- Load Models ---
+# --- UI Header ---
+st.title("⚡ AI EV Charging Station Predictor")
+st.markdown("---")
+
+# --- API Key Management (Automated) ---
+# Priority: 1. Streamlit Secrets (Cloud) 2. Environment Variables (Local)
+api_key = st.secrets.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
+if not api_key:
+    st.error("🔑 **Google API Key not found.**")
+    st.info("Please add `GOOGLE_API_KEY` to your Streamlit Secrets (Cloud) or `.env` file (Local).")
+    
+    with st.expander("🛠️ Debug Information (Technical Details)"):
+        import langchain_google_genai
+        import google.generativeai as genai
+        st.write(f"- `langchain-google-genai` version: {langchain_google_genai.__version__}")
+        st.write(f"- `google-generativeai` version: {genai.__version__}")
+        st.write("Available Keys in Secrets:", list(st.secrets.keys()))
+        st.write("Available API-related Keys in Env:", [k for k in os.environ.keys() if "API" in k or "KEY" in k])
+    st.stop()
+
+# --- Rate Limiting Logic ---
+RATE_LIMIT_SECONDS = 5
+
+def check_rate_limit():
+    if "last_request_time" not in st.session_state:
+        st.session_state.last_request_time = 0
+    
+    current_time = time.time()
+    elapsed = current_time - st.session_state.last_request_time
+    
+    if elapsed < RATE_LIMIT_SECONDS:
+        remaining = int(RATE_LIMIT_SECONDS - elapsed)
+        return False, remaining
+    return True, 0
+
+# --- Load ML Models ---
 @st.cache_resource(show_spinner="Loading machine learning models...")
 def load_models():
     try:
@@ -41,7 +73,7 @@ def load_models():
             
         return rf_model, xgb_model, scaler, le, float(threshold)
     except Exception as e:
-        st.error(f"Error loading ML models: {e}. Please ensure all model files are present.")
+        st.error(f"Error loading ML models: {e}")
         return None, None, None, None, None
 
 rf_model, xgb_model, scaler, le, threshold = load_models()
@@ -63,25 +95,21 @@ class MiniLMEmbeddingsWrapper(Embeddings):
 @st.cache_resource(show_spinner="Initializing RAG Knowledge Base...")
 def setup_rag():
     try:
-        # Utilize the ultra-lightweight ONNX version bundled directly within Chroma,
-        # wrapped securely inside LangChain's base class interface!
         embeddings_wrapper = MiniLMEmbeddingsWrapper()
-        
         db = Chroma(embedding_function=embeddings_wrapper, persist_directory="./chroma_db")
         
-        # Seed dummy facts if DB is empty to demonstrate technical completion
+        # Seed facts if DB is empty
         if len(db.get()["ids"]) == 0:
             docs = [
-                "Fast DC charging stations are predominantly located near major transit corridors and urban centers. They typically utilize CCS or CHAdeMO standards.",
-                "While AC chargers provide up to 22kW, Fast DC chargers usually supply 50kW to 350kW directly to the vehicle's battery.",
-                "In Europe, the CCS2 standard dominates the Fast DC network rollout.",
-                "In North America, Tesla's NACS and the CCS1 standards are the most widespread Fast DC charging options.",
-                "Statistically, standalone charging locations with more than 3 distinct ports carry a substantially higher probability of housing Fast DC hardware.",
-                "Range anxiety is largely mitigated by high-speed Level 3 (DC Fast) charging infrastructure which can charge vehicles to 80% in under 30 minutes."
+                "Fast DC charging stations (Level 3) provide 50kW to 350kW, providing 80% charge in under 30 minutes.",
+                "AC Charging (Level 2) typically provides 7kW to 22kW and is common for home and workplace charging.",
+                "The CCS2 standard is the most common for Fast DC charging in Europe.",
+                "In North America, Tesla's NACS and CCS1 are the dominant Fast DC standards.",
+                "High-density urban areas and highway corridors are primary locations for Fast DC infrastructure."
             ]
             db.add_texts(
                 texts=docs,
-                metadatas=[{"source": "EV Facts Knowledge Base"}] * len(docs),
+                metadatas=[{"source": "EV Facts"}] * len(docs),
                 ids=[f"fact_{i}" for i in range(len(docs))]
             )
         return db
@@ -91,51 +119,31 @@ def setup_rag():
 
 db = setup_rag()
 
-# --- Define LangChain Agent Tools ---
+# --- Agent Tools ---
 @tool
 def search_ev_knowledge(query: str) -> str:
-    """
-    Search the RAG knowledge base for information context on electric vehicles, charging standards, speed details, and region-specific EV facts.
-    Use this tool whenever the user asks a general factual question about EV charging.
-    """
-    if db is None:
-        return "RAG Database is offline."
+    """Search for factual information about EV charging infrastructure, standards, and speeds."""
+    if db is None: return "Database offline."
     results = db.similarity_search(query, k=2)
     return "\n\n".join([doc.page_content for doc in results])
 
 @tool
 def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports: int) -> str:
-    """
-    Predicts if a location has a Fast DC charging station.
-    You must NOT call this tool until you have gathered EXACTLY these 4 arguments from the user:
-    - country_code (string, e.g. 'US', 'CA')
-    - latitude (float, e.g. 40.7128)
-    - longitude (float, e.g. -74.0060)
-    - ports (integer, number of charging ports, e.g. 2)
-    
-    Returns a string prediction ('Yes' or 'No').
-    """
-    if rf_model is None:
-        return "Error: Local ML Models are not loaded."
-        
+    """Predicts if a location likely has a Fast DC charging station based on its coordinates and port count."""
+    if rf_model is None: return "ML Models not loaded."
     try:
-        cc = str(country_code)
-        lat = float(latitude)
-        lon = float(longitude)
-        p = int(ports)
+        input_data = pd.DataFrame([[country_code, latitude, longitude, ports]], 
+                                  columns=['country_code', 'latitude', 'longitude', 'ports'])
         
-        input_data = pd.DataFrame([[cc, lat, lon, p]], columns=['country_code', 'latitude', 'longitude', 'ports'])
-        
-        # Encode Country Code
+        # Preprocessing
         try:
             input_data['country_code'] = le.transform(input_data['country_code'])
-        except ValueError:
+        except:
             input_data['country_code'] = -1
             
-        # Scale Features
         input_data[['latitude', 'longitude', 'ports']] = scaler.transform(input_data[['latitude', 'longitude', 'ports']])
         
-        # Feature Engineering Context
+        # Feature Engineering
         input_data['latitude_x_longitude'] = input_data['latitude'] * input_data['longitude']
         input_data['ports_x_latitude'] = input_data['ports'] * input_data['latitude']
         input_data['ports_x_longitude'] = input_data['ports'] * input_data['longitude']
@@ -143,161 +151,72 @@ def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports:
         input_data['longitude_squared'] = input_data['longitude'] ** 2
         input_data['ports_squared'] = input_data['ports'] ** 2
         
-        # Ensemble Prediction
+        # Model Inference
         rf_prob = rf_model.predict_proba(input_data)[:, 1]
         xgb_prob = xgb_model.predict_proba(input_data)[:, 1]
         ensemble_prob = (rf_prob[0] + xgb_prob[0]) / 2
         
-        final_pred = 1 if ensemble_prob >= threshold else 0
-        
-        if final_pred == 1:
-            return "ML Prediction Output: POSITIVE. A Fast DC charging station is likely present."
-        else:
-            return "ML Prediction Output: NEGATIVE. A Fast DC charging station is NOT present."
-            
+        result = "POSITIVE" if ensemble_prob >= threshold else "NEGATIVE"
+        return f"Prediction: {result}. (Probability: {ensemble_prob:.2f})"
     except Exception as e:
-        return f"Prediction Execution Error: {str(e)}"
+        return f"Prediction Error: {str(e)}"
 
-# --- UI Setup & Configuration ---
-st.title("⚡ AI EV Charging Station Predictor")
-st.markdown("**(Powered by LangGraph, ChromaDB, and Google Gemini)**")
-st.markdown("Chat with the Agent to predict station layouts or ask about EV Charging Infrastructure facts!")
-
-# --- API Key Management ---
-# Automate key retrieval from Streamlit Secrets or Environment Variables
-api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-
-if not api_key:
-    st.error("🔑 Google API Key not found. Please add **GOOGLE_API_KEY** to your Streamlit Secrets or Environment Variables.")
-    
-    # Deployment Diagnostics (Helpful for debugging Secret mounting issues on Streamlit Cloud)
-    with st.expander("🛠️ Deployment Diagnostic Info"):
-        import langchain_google_genai
-        import google.generativeai as genai
-        st.write("Package Versions:")
-        st.write(f"- `langchain-google-genai`: {langchain_google_genai.__version__}")
-        st.write(f"- `google-generativeai`: {genai.__version__}")
-        st.write("Current Keys In `st.secrets`:", list(st.secrets.keys()))
-        st.write("Current Keys In `os.environ`:", [k for k in os.environ.keys() if "API" in k or "KEY" in k])
-        st.info("Check: Did you paste the secret as `GOOGLE_API_KEY = 'your_key_here'` (with quotes) in the dashboard?")
-    
-    st.info("Check the **.env.example** file for local setup instructions.")
-    st.stop()
-
-def reset_conversation():
-    from langchain_core.messages import SystemMessage
-    st.session_state.messages = [
-        SystemMessage(content=system_prompt)
-    ]
-    
-st.sidebar.button("Start Over", on_click=reset_conversation)
-
-# Initialize Google Gemini LLM
+# --- Agent Initialization ---
 try:
-    # Use 'gemini-1.5-flash-latest' explicitly to rule out versioning issues
-    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash-latest", temperature=0)
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash", temperature=0)
+    agent_executor = create_react_agent(llm, [search_ev_knowledge, predict_fast_dc])
 except Exception as e:
-    st.error(f"Failed to initialize Google Gemini LLM: {e}")
+    st.error(f"Failed to initialize AI Agent: {e}")
     st.stop()
 
-system_prompt = """You are a helpful and friendly EV charging station assistant.
-You help users in two ways:
-1. **Predict Fast DC Charging**: Using the `predict_fast_dc` tool. If a user wants a prediction, ask them for the Country Code, Latitude, Longitude, and Number of Ports one by one.
-2. **Find Facts**: Using the `search_ev_knowledge` tool to answer factual questions about EV infrastructure.
-
-Always be warm, professional, and concise. Use your tools automatically whenever you need data or facts.
-"""
-
-from langchain_core.messages import SystemMessage
-
-# Compile LangGraph ReAct Agent
-tools_list = [search_ev_knowledge, predict_fast_dc]
-agent_executor = create_react_agent(llm, tools_list)
-
-# --- Session State Management ---
+# --- Chat Interface ---
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        SystemMessage(content=system_prompt)
+        SystemMessage(content="You are a helpful EV charging assistant. Use tools to find facts or predict station types.")
     ]
 
-# Rate Limiting State
-if "last_message_time" not in st.session_state:
-    st.session_state.last_message_time = 0
-
-import time
-def is_rate_limited():
-    current_time = time.time()
-    elapsed = current_time - st.session_state.last_message_time
-    if elapsed < 5:  # 5 second limit
-        return True, 5 - int(elapsed)
-    return False, 0
-
-# --- Helper for parsing Gemini UI Content ---
-def extract_text(content):
-    if isinstance(content, str):
-        return content
-    elif isinstance(content, list):
-        text_parts = []
-        for block in content:
-            if isinstance(block, dict) and "text" in block:
-                text_parts.append(block["text"])
-            elif isinstance(block, str):
-                text_parts.append(block)
-        return "\n".join(text_parts)
-    return str(content)
-
-# --- Display Chat History ---
+# Display history
 for msg in st.session_state.messages:
-    # Do not display the hidden system prompt to the user
-    if isinstance(msg, SystemMessage):
-        continue
-    if isinstance(msg, HumanMessage):
+    if isinstance(msg, SystemMessage): continue
+    role = "user" if isinstance(msg, HumanMessage) else "assistant"
+    with st.chat_message(role):
+        st.markdown(msg.content if isinstance(msg.content, str) else str(msg.content))
+
+# Input
+if prompt := st.chat_input("Ask about EV charging or request a prediction..."):
+    # Check rate limit
+    allowed, wait_time = check_rate_limit()
+    if not allowed:
+        st.warning(f"⏳ Please wait {wait_time} seconds before your next question.")
+    else:
+        st.session_state.last_request_time = time.time()
+        
+        # Add human message
+        user_msg = HumanMessage(content=prompt)
+        st.session_state.messages.append(user_msg)
         with st.chat_message("user"):
-            st.markdown(extract_text(msg.content))
-    # Filter out intermediary ToolMessages from UI so user only sees AI strings
-    elif isinstance(msg, AIMessage):
-        # LangChain sometimes outputs empty string AIMessages when invoking a tool request
-        if msg.content:
-            parsed_text = extract_text(msg.content)
-            if parsed_text.strip():
-                with st.chat_message("assistant"):
-                    st.markdown(parsed_text)
-
-# --- User Input & Graph Execution ---
-if prompt := st.chat_input("Type your message here..."):
-    # Rate Limit Check
-    limited, wait_time = is_rate_limited()
-    if limited:
-        st.warning(f"⏳ Please wait {wait_time} more seconds before sending another message.")
-        st.stop()
-        
-    # Update last message time
-    st.session_state.last_message_time = time.time()
-
-    # 1. Store and show user message
-    user_msg = HumanMessage(content=prompt)
-    st.session_state.messages.append(user_msg)
-    with st.chat_message("user"):
-        st.markdown(prompt)
-        
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        
-        with st.spinner("Agent is reasoning..."):
-            try:
-                # 2. Invoke LangGraph executor pipeline
-                response = agent_executor.invoke({"messages": st.session_state.messages})
-                
-                # 3. Append the newly generated agentic nodes/tool actions to state
-                # response["messages"] contains the complete conversational state graph.
-                # We just append the newly added messages to our Streamlit session state.
-                new_messages = response["messages"][len(st.session_state.messages):]
-                for m in new_messages:
-                    st.session_state.messages.append(m)
+            st.markdown(prompt)
+            
+        # Agent Reasoning
+        with st.chat_message("assistant"):
+            with st.spinner("AI is thinking..."):
+                try:
+                    response = agent_executor.invoke({"messages": st.session_state.messages})
+                    # Add only new messages to session state
+                    new_msgs = response["messages"][len(st.session_state.messages):]
+                    for m in new_msgs:
+                        st.session_state.messages.append(m)
                     
-                # 4. Display the ultimate finalized AIMessage response to the user
-                final_reply = extract_text(response["messages"][-1].content)
-                message_placeholder.markdown(final_reply)
-                
-            except Exception as e:
-                st.error(f"Error executing LangGraph agent workflow: {str(e)}")
+                    # Display final answer
+                    final_text = response["messages"][-1].content
+                    st.markdown(final_text)
+                except Exception as e:
+                    st.error(f"Agent Error: {str(e)}")
+
+# Sidebar
+with st.sidebar:
+    st.header("App Management")
+    if st.button("Clear Conversation"):
+        st.session_state.messages = [st.session_state.messages[0]]
+        st.rerun()
+    st.info("Rate limit: 1 request per 5 seconds.")
