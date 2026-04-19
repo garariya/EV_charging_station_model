@@ -13,6 +13,7 @@ pyngrok
 langchain
 langchain-community
 langgraph
-langchain-groq
+langchain-google-genai
+google-generativeai
 langchain-chroma
 sentence-transformers

@@ -19,7 +19,7 @@ import os
 # LangChain / LangGraph Imports
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.prebuilt import create_react_agent
 from langchain_chroma import Chroma
 
@@ -160,15 +160,15 @@ def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports:
 
 # --- UI Setup & Configuration ---
 st.title("⚡ AI EV Charging Station Predictor")
-st.markdown("**(Powered by LangGraph, ChromaDB, and Groq Llama-3)**")
+st.markdown("**(Powered by LangGraph, ChromaDB, and Google Gemini)**")
 st.markdown("Chat with the Agent to predict station layouts or ask about EV Charging Infrastructure facts!")
 
 # --- API Key Management ---
 # Automate key retrieval from Streamlit Secrets or Environment Variables
-api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
+api_key = st.secrets.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 if not api_key:
-    st.error("🔑 Groq API Key not found. Please add **GROQ_API_KEY** to your Streamlit Secrets or Environment Variables.")
+    st.error("🔑 Google API Key not found. Please add **GOOGLE_API_KEY** to your Streamlit Secrets or Environment Variables.")
     st.info("Check the **.env.example** file for local setup instructions.")
     st.stop()
 
@@ -180,11 +180,11 @@ def reset_conversation():
     
 st.sidebar.button("Start Over", on_click=reset_conversation)
 
-# Initialize Groq LLM
+# Initialize Google Gemini LLM
 try:
-    llm = ChatGroq(groq_api_key=api_key, model_name="mixtral-8x7b-32768", temperature=0)
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash", temperature=0)
 except Exception as e:
-    st.error(f"Failed to initialize Groq LLM: {e}")
+    st.error(f"Failed to initialize Google Gemini LLM: {e}")
     st.stop()
 
 system_prompt = """You are a helpful and friendly EV charging station assistant.
@@ -206,6 +206,18 @@ agent_executor = create_react_agent(llm, tools_list, state_modifier=system_promp
 # --- Session State Management ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+# Rate Limiting State
+if "last_message_time" not in st.session_state:
+    st.session_state.last_message_time = 0
+
+import time
+def is_rate_limited():
+    current_time = time.time()
+    elapsed = current_time - st.session_state.last_message_time
+    if elapsed < 5:  # 5 second limit
+        return True, 5 - int(elapsed)
+    return False, 0
 
 # --- Helper for parsing Gemini UI Content ---
 def extract_text(content):
@@ -237,6 +249,15 @@ for msg in st.session_state.messages:
 
 # --- User Input & Graph Execution ---
 if prompt := st.chat_input("Type your message here..."):
+    # Rate Limit Check
+    limited, wait_time = is_rate_limited()
+    if limited:
+        st.warning(f"⏳ Please wait {wait_time} more seconds before sending another message.")
+        st.stop()
+        
+    # Update last message time
+    st.session_state.last_message_time = time.time()
+
     # 1. Store and show user message
     user_msg = HumanMessage(content=prompt)
     st.session_state.messages.append(user_msg)

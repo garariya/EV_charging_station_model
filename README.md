@@ -10,10 +10,10 @@ The system uses a **ReAct (Reasoning and Acting)** pattern to interact with user
 
 ## 🌟 Key Features
 - **Agentic Orchestration**: Built with **LangGraph**, the agent maintains conversation state and intelligently decides when to use tools.
-- **RAG Knowledge Base**: Uses **ChromaDB** to store and retrieve domain-specific EV infrastructure facts, allowing the agent to answer technical questions about charging standards and corridors.
-- **Ensemble ML Prediction**: Combines **RandomForest** and **XGBoost** models with advanced feature engineering to classify stations with high precision.
-- **Adaptive Reasoning**: The agent gathers the 4 required prediction inputs (Country Code, Latitude, Longitude, Ports) through natural conversation before triggering the model.
-- **Dynamic UI**: A modern **Streamlit** interface featuring a full chat experience.
+- **RAG Knowledge Base**: Uses **ChromaDB** to store and retrieve domain-specific EV infrastructure facts.
+- **Ensemble ML Prediction**: Combines **RandomForest** and **XGBoost** models for high-precision station classification.
+- **Rate Limiting**: Built-in 5-second cooldown to manage API usage and protect quotas.
+- **Automated Key Management**: Automatically retrieves credentials from environment variables or Streamlit secrets.
 
 ---
 
@@ -22,7 +22,7 @@ The system uses a **ReAct (Reasoning and Acting)** pattern to interact with user
 | Layer | Technology |
 | :--- | :--- |
 | **Agent Framework** | LangGraph, LangChain |
-| **Core LLM** | Groq (Llama-3-70b-versatile) |
+| **Core LLM** | Google Gemini (1.5-flash) |
 | **Vector Database** | ChromaDB (RAG) |
 | **Machine Learning** | Scikit-learn, XGBoost |
 | **Data Manipulation** | Pandas, Numpy |
@@ -83,10 +83,10 @@ streamlit run app.py
 ---
 
 ## 🤖 How to Interact with the Agent
-1. **Provide a Groq API Key**: In the sidebar, enter your Groq API key (from [console.groq.com](https://console.groq.com/)) to activate the agent.
-2. **Chat Naturally**: You can ask questions like *"What is the difference between AC and DC charging?"* and the agent will use the RAG tool.
-3. **Run a Prediction**: If you ask *"Can you predict a station for me?"*, the agent will begin a guided workflow, asking you for the location and port details one by one.
-4. **Final Verdict**: Once all data is collected, the agent will run the ensemble model and explain the result.
+1. **Automated Setup**: Once you have your `GOOGLE_API_KEY` in your `.env` or Streamlit Secrets, just start the app! No manual token entry required.
+2. **Chat Naturally**: Ask questions like *"What is the difference between AC and DC charging?"* to trigger the RAG knowledge search.
+3. **Run a Prediction**: Ask the agent to predict a station status, and it will guide you through the necessary inputs.
+4. **Rate Limiting**: If you message too quickly, the system will ask you to wait a few seconds before your next interaction.
 
 ---
 
