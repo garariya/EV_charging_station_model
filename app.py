@@ -154,10 +154,10 @@ def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports:
 
 # --- Agent Initialization (Groq) ---
 try:
-    # llama3-groq-8b-8192-tool-use-preview is specifically tuned for tool/function calling
+    # llama-3.3-70b-versatile: Groq's production model with excellent tool-calling support
     llm = ChatGroq(
         groq_api_key=api_key,
-        model_name="llama3-groq-8b-8192-tool-use-preview",
+        model_name="llama-3.3-70b-versatile",
         temperature=0
     )
     agent_executor = create_react_agent(llm, [search_ev_knowledge, predict_fast_dc])
