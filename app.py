@@ -182,7 +182,7 @@ st.sidebar.button("Start Over", on_click=reset_conversation)
 
 # Initialize Groq LLM
 try:
-    llm = ChatGroq(groq_api_key=api_key, model_name="llama-3.1-8b-instant", temperature=0)
+    llm = ChatGroq(groq_api_key=api_key, model_name="mixtral-8x7b-32768", temperature=0)
 except Exception as e:
     st.error(f"Failed to initialize Groq LLM: {e}")
     st.stop()
@@ -190,25 +190,22 @@ except Exception as e:
 system_prompt = """You are a helpful and friendly EV charging station assistant.
 You help users in two ways:
 1. **Predict Fast DC Charging**: Using the `predict_fast_dc` tool. If a user wants a prediction, ask them for the Country Code, Latitude, Longitude, and Number of Ports one by one.
-2. **Find Facts**: Using the `search_ev_knowledge` tool to answer technical or general questions about EV infrastructure.
+2. **Find Facts**: Using the `search_ev_knowledge` tool to answer factual questions about EV infrastructure.
 
-Always be warm, professional, and concise. 
-
-**STRICT TOOL RULE:**
-When using a tool, you MUST output ONLY the tool call. NEVER generate XML tags like `<function>` or `</function>`, and never explain your reasoning BEFORE a tool call. Use the native tool-calling API format exclusively.
+Always be warm, professional, and concise. Use your tools automatically whenever you need data or facts.
 """
 
 from langchain_core.messages import SystemMessage
 
 # Compile LangGraph ReAct Agent
 tools_list = [search_ev_knowledge, predict_fast_dc]
-agent_executor = create_react_agent(llm, tools_list)
+# Use state_modifier to inject the system prompt correctly into the agent's brain 
+# without polluting the session history.
+agent_executor = create_react_agent(llm, tools_list, state_modifier=system_prompt)
 
 # --- Session State Management ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        SystemMessage(content=system_prompt)
-    ]
+    st.session_state.messages = []
 
 # --- Helper for parsing Gemini UI Content ---
 def extract_text(content):
@@ -226,9 +223,6 @@ def extract_text(content):
 
 # --- Display Chat History ---
 for msg in st.session_state.messages:
-    # Do not display the hidden system prompt to the user
-    if isinstance(msg, SystemMessage):
-        continue
     if isinstance(msg, HumanMessage):
         with st.chat_message("user"):
             st.markdown(extract_text(msg.content))
