@@ -13,7 +13,7 @@ pyngrok
 langchain
 langchain-community
 langgraph
-langchain-google-genai
-google-generativeai
+langchain-google-genai>=2.1.0
+google-generativeai>=0.8.0
 langchain-chroma
 sentence-transformers
