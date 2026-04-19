@@ -172,6 +172,11 @@ if not api_key:
     
     # Deployment Diagnostics (Helpful for debugging Secret mounting issues on Streamlit Cloud)
     with st.expander("🛠️ Deployment Diagnostic Info"):
+        import langchain_google_genai
+        import google.generativeai as genai
+        st.write("Package Versions:")
+        st.write(f"- `langchain-google-genai`: {langchain_google_genai.__version__}")
+        st.write(f"- `google-generativeai`: {genai.__version__}")
         st.write("Current Keys In `st.secrets`:", list(st.secrets.keys()))
         st.write("Current Keys In `os.environ`:", [k for k in os.environ.keys() if "API" in k or "KEY" in k])
         st.info("Check: Did you paste the secret as `GOOGLE_API_KEY = 'your_key_here'` (with quotes) in the dashboard?")
@@ -189,8 +194,8 @@ st.sidebar.button("Start Over", on_click=reset_conversation)
 
 # Initialize Google Gemini LLM
 try:
-    # Use the stable model name now that libraries are updated
-    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash", temperature=0)
+    # Use 'gemini-1.5-flash-latest' explicitly to rule out versioning issues
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash-latest", temperature=0)
 except Exception as e:
     st.error(f"Failed to initialize Google Gemini LLM: {e}")
     st.stop()
