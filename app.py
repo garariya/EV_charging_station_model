@@ -76,13 +76,16 @@ def check_rate_limit():
 @st.cache_resource(show_spinner="Loading machine learning models...")
 def load_models():
     try:
-        rf_model = joblib.load('rf_balanced_retrained_fe.joblib')
-        xgb_model = joblib.load('xgb_cs_retrained_fe.joblib')
-        scaler = joblib.load('scaler.joblib')
-        with open('label_encoder.pkl', 'rb') as f:
-            le = pickle.load(f)
-        with open('optimal_threshold.pkl', 'rb') as f:
-            threshold = pickle.load(f)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            rf_model = joblib.load('rf_balanced_retrained_fe.joblib')
+            xgb_model = joblib.load('xgb_cs_retrained_fe.joblib')
+            scaler = joblib.load('scaler.joblib')
+            with open('label_encoder.pkl', 'rb') as f:
+                le = pickle.load(f)
+            with open('optimal_threshold.pkl', 'rb') as f:
+                threshold = pickle.load(f)
         return rf_model, xgb_model, scaler, le, float(threshold)
     except Exception as e:
         st.error(f"Error loading ML models: {e}")

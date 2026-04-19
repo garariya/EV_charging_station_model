@@ -16,3 +16,4 @@ langgraph
 langchain-groq
 langchain-chroma
 chromadb==0.4.24
+posthog==2.4.2
