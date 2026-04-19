@@ -1,5 +1,5 @@
 python-dotenv
-protobuf
+protobuf==3.20.3
 streamlit
 
 scikit-learn
@@ -15,3 +15,4 @@ langchain-community
 langgraph
 langchain-groq
 langchain-chroma
+chromadb==0.4.24
