@@ -1,4 +1,5 @@
 python-dotenv
+protobuf
 streamlit
 
 scikit-learn

@@ -1,5 +1,10 @@
 import streamlit as st
 import os
+
+# Fix for Protobuf TypeError on Streamlit Cloud (Python 3.13)
+# Forces pure-python implementation to avoid descriptor conflicts
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 from dotenv import load_dotenv
 
 # Load local environment variables
