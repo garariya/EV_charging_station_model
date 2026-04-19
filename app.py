@@ -182,7 +182,7 @@ st.sidebar.button("Start Over", on_click=reset_conversation)
 
 # Initialize Google Gemini LLM
 try:
-    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash-latest", temperature=0)
 except Exception as e:
     st.error(f"Failed to initialize Google Gemini LLM: {e}")
     st.stop()
@@ -199,13 +199,13 @@ from langchain_core.messages import SystemMessage
 
 # Compile LangGraph ReAct Agent
 tools_list = [search_ev_knowledge, predict_fast_dc]
-# Use state_modifier to inject the system prompt correctly into the agent's brain 
-# without polluting the session history.
-agent_executor = create_react_agent(llm, tools_list, state_modifier=system_prompt)
+agent_executor = create_react_agent(llm, tools_list)
 
 # --- Session State Management ---
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = [
+        SystemMessage(content=system_prompt)
+    ]
 
 # Rate Limiting State
 if "last_message_time" not in st.session_state:
@@ -235,6 +235,9 @@ def extract_text(content):
 
 # --- Display Chat History ---
 for msg in st.session_state.messages:
+    # Do not display the hidden system prompt to the user
+    if isinstance(msg, SystemMessage):
+        continue
     if isinstance(msg, HumanMessage):
         with st.chat_message("user"):
             st.markdown(extract_text(msg.content))
