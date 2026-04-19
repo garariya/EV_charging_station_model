@@ -165,10 +165,17 @@ st.markdown("Chat with the Agent to predict station layouts or ask about EV Char
 
 # --- API Key Management ---
 # Automate key retrieval from Streamlit Secrets or Environment Variables
-api_key = st.secrets.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
 
 if not api_key:
     st.error("🔑 Google API Key not found. Please add **GOOGLE_API_KEY** to your Streamlit Secrets or Environment Variables.")
+    
+    # Deployment Diagnostics (Helpful for debugging Secret mounting issues on Streamlit Cloud)
+    with st.expander("🛠️ Deployment Diagnostic Info"):
+        st.write("Current Keys In `st.secrets`:", list(st.secrets.keys()))
+        st.write("Current Keys In `os.environ`:", [k for k in os.environ.keys() if "API" in k or "KEY" in k])
+        st.info("Check: Did you paste the secret as `GOOGLE_API_KEY = 'your_key_here'` (with quotes) in the dashboard?")
+    
     st.info("Check the **.env.example** file for local setup instructions.")
     st.stop()
 
@@ -182,7 +189,8 @@ st.sidebar.button("Start Over", on_click=reset_conversation)
 
 # Initialize Google Gemini LLM
 try:
-    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-3-flash-preview", temperature=0)
+    # Use stable gemini-1.5-flash for deployment reliability
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash", temperature=0)
 except Exception as e:
     st.error(f"Failed to initialize Google Gemini LLM: {e}")
     st.stop()
