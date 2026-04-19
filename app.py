@@ -15,7 +15,7 @@ load_dotenv()
 # LangChain / LangGraph Imports
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import create_react_agent  # noqa: will migrate when stable
 from langchain_chroma import Chroma
 from langchain_core.tools import tool
 
@@ -74,7 +74,8 @@ from langchain_core.embeddings import Embeddings
 
 class MiniLMEmbeddingsWrapper(Embeddings):
     def __init__(self):
-        from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
+        # chromadb 0.4.24: embedding_functions is a flat module, not a package
+        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
         self.ef = ONNXMiniLM_L6_V2()
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
