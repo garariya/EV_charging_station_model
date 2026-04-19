@@ -162,8 +162,8 @@ def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports:
         return f"Prediction Error: {str(e)}"
 
 try:
-    # Use the stable v1 API version to avoid 404/v1beta issues
-    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-1.5-flash", version="v1", temperature=0)
+    # Using the requested gemini-2.0-flash model
+    llm = ChatGoogleGenerativeAI(google_api_key=api_key, model="gemini-2.0-flash", temperature=0)
     agent_executor = create_react_agent(llm, [search_ev_knowledge, predict_fast_dc])
 except Exception as e:
     st.error(f"Failed to initialize AI Agent: {e}")
