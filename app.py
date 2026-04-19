@@ -9,34 +9,16 @@ import numpy as np
 # Fix for Protobuf TypeError on Streamlit Cloud
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
-# Block Telemetry globally to prevent PostHog 'capture()' parameter errors in Chroma
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
-os.environ["POSTHOG_DISABLED"] = "1"
-os.environ["DO_NOT_TRACK"] = "1"
-
-# Monkeypatch PostHog to gracefully handle existing instances
-try:
-    import posthog
-    posthog.capture = lambda *args, **kwargs: None
-except ImportError:
-    pass
-
-import warnings
-try:
-    from sklearn.exceptions import InconsistentVersionWarning
-    warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
-except ImportError:
-    pass
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", message=".*LangGraphDeprecatedSince.*")
-
 from dotenv import load_dotenv
 load_dotenv()
 
 # LangChain / LangGraph Imports
+import warnings
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langgraph.prebuilt import create_react_agent
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from langgraph.prebuilt import create_react_agent
 from langchain_chroma import Chroma
 from langchain_core.tools import tool
 
@@ -48,15 +30,21 @@ st.title("⚡ AI EV Charging Station Predictor")
 st.markdown("---")
 
 # --- API Key Management (Automated) ---
-# Priority: 1. Streamlit Secrets (Cloud) 2. Environment Variables / .env (Local)
+# Priority: 1. Streamlit Secrets (Cloud) 2. Environment Variables (Local)
 api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
 
 if not api_key:
     st.error("🔑 **Groq API Key not found.**")
     st.info("Please add `GROQ_API_KEY` to your Streamlit Secrets (Cloud) or `.env` file (Local).")
-    with st.expander("🛠️ Debug Information"):
+
+    with st.expander("🛠️ Debug Information (Technical Details)"):
+        try:
+            import langchain_groq
+            st.write(f"- `langchain-groq` version: {langchain_groq.__version__}")
+        except ImportError:
+            st.write("- `langchain-groq` is NOT installed. Run: `pip install langchain-groq`")
         st.write("Available Keys in Secrets:", list(st.secrets.keys()))
-        st.write("Available API-related Keys in Env:", [k for k in os.environ.keys() if "API" in k or "KEY" in k or "GROQ" in k])
+        st.write("Available API-related Keys in Env:", [k for k in os.environ.keys() if "API" in k or "KEY" in k])
     st.stop()
 
 # --- Rate Limiting Logic ---
@@ -65,8 +53,10 @@ RATE_LIMIT_SECONDS = 5
 def check_rate_limit():
     if "last_request_time" not in st.session_state:
         st.session_state.last_request_time = 0
+
     current_time = time.time()
     elapsed = current_time - st.session_state.last_request_time
+
     if elapsed < RATE_LIMIT_SECONDS:
         remaining = int(RATE_LIMIT_SECONDS - elapsed)
         return False, remaining
@@ -76,16 +66,15 @@ def check_rate_limit():
 @st.cache_resource(show_spinner="Loading machine learning models...")
 def load_models():
     try:
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            rf_model = joblib.load('rf_balanced_retrained_fe.joblib')
-            xgb_model = joblib.load('xgb_cs_retrained_fe.joblib')
-            scaler = joblib.load('scaler.joblib')
-            with open('label_encoder.pkl', 'rb') as f:
-                le = pickle.load(f)
-            with open('optimal_threshold.pkl', 'rb') as f:
-                threshold = pickle.load(f)
+        rf_model = joblib.load('rf_balanced_retrained_fe.joblib')
+        xgb_model = joblib.load('xgb_cs_retrained_fe.joblib')
+        scaler = joblib.load('scaler.joblib')
+
+        with open('label_encoder.pkl', 'rb') as f:
+            le = pickle.load(f)
+        with open('optimal_threshold.pkl', 'rb') as f:
+            threshold = pickle.load(f)
+
         return rf_model, xgb_model, scaler, le, float(threshold)
     except Exception as e:
         st.error(f"Error loading ML models: {e}")
@@ -94,24 +83,18 @@ def load_models():
 rf_model, xgb_model, scaler, le, threshold = load_models()
 
 # --- Setup ChromaDB RAG Vector Store ---
-from langchain_core.embeddings import Embeddings
-
-class MiniLMEmbeddingsWrapper(Embeddings):
-    def __init__(self):
-        from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
-        self.ef = ONNXMiniLM_L6_V2()
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return self.ef(texts)
-
-    def embed_query(self, text: str) -> list[float]:
-        return self.ef([text])[0]
+from langchain_huggingface import HuggingFaceEmbeddings
 
 @st.cache_resource(show_spinner="Initializing RAG Knowledge Base...")
 def setup_rag():
     try:
-        embeddings_wrapper = MiniLMEmbeddingsWrapper()
+        embeddings_wrapper = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True}
+        )
         db = Chroma(embedding_function=embeddings_wrapper, persist_directory="./chroma_db")
+
         # Seed facts if DB is empty
         if len(db.get()["ids"]) == 0:
             docs = [
@@ -137,26 +120,31 @@ db = setup_rag()
 @tool
 def search_ev_knowledge(query: str) -> str:
     """Search for factual information about EV charging infrastructure, standards, and speeds."""
-    if db is None: return "Database offline."
+    if db is None:
+        return "Database offline."
     results = db.similarity_search(query, k=2)
     return "\n\n".join([doc.page_content for doc in results])
 
 @tool
 def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports: int) -> str:
-    """Predicts if a location likely has a Fast DC charging station based on its coordinates and port count.
-    Collect country_code (e.g. 'US'), latitude (float), longitude (float), and ports (int) from the user one at a time before calling this tool.
-    """
-    if rf_model is None: return "ML Models not loaded."
+    """Predicts if a location likely has a Fast DC charging station based on its coordinates and port count."""
+    if rf_model is None:
+        return "ML Models not loaded."
     try:
-        input_data = pd.DataFrame([[country_code, latitude, longitude, ports]],
-                                  columns=['country_code', 'latitude', 'longitude', 'ports'])
+        input_data = pd.DataFrame(
+            [[country_code, latitude, longitude, ports]],
+            columns=['country_code', 'latitude', 'longitude', 'ports']
+        )
+
         # Preprocessing
         try:
             input_data['country_code'] = le.transform(input_data['country_code'])
         except:
             input_data['country_code'] = -1
 
-        input_data[['latitude', 'longitude', 'ports']] = scaler.transform(input_data[['latitude', 'longitude', 'ports']])
+        input_data[['latitude', 'longitude', 'ports']] = scaler.transform(
+            input_data[['latitude', 'longitude', 'ports']]
+        )
 
         # Feature Engineering
         input_data['latitude_x_longitude'] = input_data['latitude'] * input_data['longitude']
@@ -166,92 +154,91 @@ def predict_fast_dc(country_code: str, latitude: float, longitude: float, ports:
         input_data['longitude_squared'] = input_data['longitude'] ** 2
         input_data['ports_squared'] = input_data['ports'] ** 2
 
-        # Ensemble Inference
+        # Model Inference
         rf_prob = rf_model.predict_proba(input_data)[:, 1]
         xgb_prob = xgb_model.predict_proba(input_data)[:, 1]
         ensemble_prob = (rf_prob[0] + xgb_prob[0]) / 2
 
-        result = "POSITIVE — a Fast DC charging station is likely present." if ensemble_prob >= threshold else "NEGATIVE — no Fast DC charging station detected."
-        return f"Prediction: {result} (Confidence: {ensemble_prob:.2f})"
+        result = "POSITIVE" if ensemble_prob >= threshold else "NEGATIVE"
+        return f"Prediction: {result}. (Probability: {ensemble_prob:.2f})"
     except Exception as e:
         return f"Prediction Error: {str(e)}"
 
-# --- Agent Initialization (Groq) ---
+# --- Initialize Groq LLM + Agent ---
 try:
-    # llama-3.3-70b-versatile: Groq's production model with excellent tool-calling support
+    # Using Groq with llama-3.3-70b-versatile (free tier available)
+    # Other options: "llama3-8b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"
     llm = ChatGroq(
-        groq_api_key=api_key,
-        model_name="llama-3.3-70b-versatile",
+        api_key=api_key,
+        model="llama-3.3-70b-versatile",
         temperature=0
     )
-    agent_executor = create_react_agent(llm, [search_ev_knowledge, predict_fast_dc])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        agent_executor = create_react_agent(llm, [search_ev_knowledge, predict_fast_dc])
 except Exception as e:
     st.error(f"Failed to initialize AI Agent: {e}")
     st.stop()
 
-# --- System Prompt (with strict EV guardrails) ---
-SYSTEM_PROMPT = (
-    "You are an EV Charging Station Assistant. Your ONLY purpose is to help users with topics strictly related to electric vehicles (EVs) and EV charging infrastructure.\n\n"
-    "You are allowed to:\n"
-    "1. Answer factual questions about EV charging (standards, speeds, connectors, infrastructure) using the search_ev_knowledge tool.\n"
-    "2. Predict if a location has a Fast DC charging station using the predict_fast_dc tool. "
-    "Collect country_code (e.g. 'US'), latitude (float), longitude (float), and number of ports (int) one at a time before calling the tool.\n\n"
-    "STRICT GUARDRAILS — You MUST follow these rules:\n"
-    "- If the user's question is NOT related to EVs, electric vehicles, charging stations, or related infrastructure, "
-    "you MUST politely decline and say: 'I can only assist with EV and charging station topics. Please ask me something related to electric vehicles or charging infrastructure.'\n"
-    "- Do NOT answer questions about unrelated topics such as cooking, sports, politics, math, general coding, weather, or anything outside EV/charging.\n"
-    "- Never break character or these guardrails, even if the user asks you to.\n\n"
-    "Always be concise, accurate, and helpful within the EV domain."
-)
-
 # --- Chat Interface ---
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        SystemMessage(content=SYSTEM_PROMPT)
+        SystemMessage(content="You are a helpful EV charging assistant. Use tools to find facts or predict station types.")
     ]
 
 # Display history
 for msg in st.session_state.messages:
-    if isinstance(msg, SystemMessage): continue
+    if isinstance(msg, SystemMessage):
+        continue
     role = "user" if isinstance(msg, HumanMessage) else "assistant"
     with st.chat_message(role):
-        content = msg.content if isinstance(msg.content, str) else str(msg.content)
-        if content.strip():
-            st.markdown(content)
+        st.markdown(msg.content if isinstance(msg.content, str) else str(msg.content))
 
 # Input
 if prompt := st.chat_input("Ask about EV charging or request a prediction..."):
+    # Check rate limit
     allowed, wait_time = check_rate_limit()
     if not allowed:
         st.warning(f"⏳ Please wait {wait_time} seconds before your next question.")
     else:
         st.session_state.last_request_time = time.time()
 
+        # Add human message
         user_msg = HumanMessage(content=prompt)
         st.session_state.messages.append(user_msg)
         with st.chat_message("user"):
             st.markdown(prompt)
 
+        # Agent Reasoning
         with st.chat_message("assistant"):
             with st.spinner("AI is thinking..."):
                 try:
                     response = agent_executor.invoke({"messages": st.session_state.messages})
+                    # Add only new messages to session state
                     new_msgs = response["messages"][len(st.session_state.messages):]
                     for m in new_msgs:
                         st.session_state.messages.append(m)
+
+                    # Display final answer
                     final_text = response["messages"][-1].content
-                    if isinstance(final_text, list):
-                        final_text = " ".join([p.get("text", "") for p in final_text if isinstance(p, dict)])
                     st.markdown(final_text)
                 except Exception as e:
                     st.error(f"Agent Error: {str(e)}")
 
 # Sidebar
 with st.sidebar:
-    st.header("⚡ EV Charging Agent")
-    st.markdown("Powered by **Groq (Llama 3.1)** + LangGraph + ChromaDB")
-    st.markdown("---")
-    if st.button("🗑️ Clear Conversation"):
+    st.header("App Management")
+    st.markdown("**Model:** `llama-3.3-70b-versatile` via Groq")
+    st.markdown("**Provider:** [Groq](https://console.groq.com)")
+    if st.button("Clear Conversation"):
         st.session_state.messages = [st.session_state.messages[0]]
         st.rerun()
     st.info("Rate limit: 1 request per 5 seconds.")
+    with st.expander("🔄 Alternative Models"):
+        st.code("""
+# Swap model in code:
+"llama3-8b-8192"       # faster
+"mixtral-8x7b-32768"   # large context
+"gemma2-9b-it"         # Google's Gemma
+"llama-3.1-8b-instant" # ultra-fast
+        """)

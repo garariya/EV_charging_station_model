@@ -2,7 +2,7 @@ python-dotenv
 protobuf==3.20.3
 streamlit
 
-scikit-learn
+scikit-learn==1.6.1
 xgboost
 pandas
 numpy<2.0
@@ -15,5 +15,7 @@ langchain-community
 langgraph
 langchain-groq
 langchain-chroma
-chromadb==0.4.24
+langchain-huggingface
+sentence-transformers
+chromadb
 posthog==2.4.2
