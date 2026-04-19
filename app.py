@@ -182,7 +182,7 @@ st.sidebar.button("Start Over", on_click=reset_conversation)
 
 # Initialize Groq LLM
 try:
-    llm = ChatGroq(groq_api_key=api_key, model_name="llama-3.3-70b-versatile", temperature=0)
+    llm = ChatGroq(groq_api_key=api_key, model_name="llama-3.1-8b-instant", temperature=0)
 except Exception as e:
     st.error(f"Failed to initialize Groq LLM: {e}")
     st.stop()
@@ -192,7 +192,10 @@ You help users in two ways:
 1. **Predict Fast DC Charging**: Using the `predict_fast_dc` tool. If a user wants a prediction, ask them for the Country Code, Latitude, Longitude, and Number of Ports one by one.
 2. **Find Facts**: Using the `search_ev_knowledge` tool to answer technical or general questions about EV infrastructure.
 
-Always be warm, professional, and concise. Use your tools automatically whenever you need data or facts to answer a user's request.
+Always be warm, professional, and concise. 
+
+**STRICT TOOL RULE:**
+When using a tool, you MUST output ONLY the tool call. NEVER generate XML tags like `<function>` or `</function>`, and never explain your reasoning BEFORE a tool call. Use the native tool-calling API format exclusively.
 """
 
 from langchain_core.messages import SystemMessage
