@@ -1,109 +1,96 @@
+# ⚡ EV Charging Station AI Agent
+### From Predictive Analytics to Agentic Intelligence
 
-# EV Charging Station Classification Using Machine Learning
+## 🚀 Project Overview
+This project represents the evolution of an EV Charging Station Classifier into a sophisticated **Agentic AI System**. Originally designed as a machine learning pipeline to predict 'Fast DC Charger' status, it now features a fully autonomous conversational agent capable of reasoning, researching domain-specific facts, and executing complex predictive workflows.
 
-## From Predictive Analytics to Intelligent Intervention
-
-### Project Overview
-This project focuses on the development of an **AI-driven Electric Vehicle (EV) Charging Station Classifier**. The system predicts whether a charging station is a 'Fast DC Charger' based on its characteristics, evolving through various machine learning and optimization stages to provide accurate and actionable insights.
-
-- **Milestone 1: Core ML Pipeline**: Application of classical machine learning techniques for data preprocessing, feature engineering, and initial model training to predict Fast DC Charger status.
-- **Milestone 2: Optimized & Deployable Solution**: Extension of the core ML pipeline with advanced optimization techniques, including class imbalance handling, hyperparameter tuning, ensemble modeling, and development of a user-friendly Streamlit application.
+The system uses a **ReAct (Reasoning and Acting)** pattern to interact with users, gathering necessary data points sequentially and providing insights backed by both statistical models and a Retrieval-Augmented Generation (RAG) knowledge base.
 
 ---
 
-### Constraints & Requirements
-- **Team Size:** A team of 4 students.
-- **API Budget:** Free Tier Only (Open-source models / Free APIs).
-- **Framework:** Scikit-learn, XGBoost, Pandas, Numpy, Matplotlib, Seaborn.
-- **UI Framework:** Streamlit.
-- **Hosting:** Mandatory (Streamlit Community Cloud).
+## 🌟 Key Features
+- **Agentic Orchestration**: Built with **LangGraph**, the agent maintains conversation state and intelligently decides when to use tools.
+- **RAG Knowledge Base**: Uses **ChromaDB** to store and retrieve domain-specific EV infrastructure facts, allowing the agent to answer technical questions about charging standards and corridors.
+- **Ensemble ML Prediction**: Combines **RandomForest** and **XGBoost** models with advanced feature engineering to classify stations with high precision.
+- **Adaptive Reasoning**: The agent gathers the 4 required prediction inputs (Country Code, Latitude, Longitude, Ports) through natural conversation before triggering the model.
+- **Dynamic UI**: A modern **Streamlit** interface featuring a full chat experience.
 
 ---
 
-### Technology Stack
-| Component | Technology |
+## 🛠️ Technology Stack
+
+| Layer | Technology |
 | :--- | :--- |
+| **Agent Framework** | LangGraph, LangChain |
+| **Core LLM** | Google Gemini (Gemini 1.5 Flash/Pro) |
+| **Vector Database** | ChromaDB (RAG) |
+| **Machine Learning** | Scikit-learn, XGBoost |
 | **Data Manipulation** | Pandas, Numpy |
-| **ML Models** | RandomForestClassifier (Scikit-learn), XGBClassifier (XGBoost) |
-| **Preprocessing** | StandardScaler (Scikit-learn), LabelEncoder (Scikit-learn) |
-| **Model Tuning** | RandomizedSearchCV (Scikit-learn) |
-| **Evaluation & Visualization** | Matplotlib, Seaborn, Scikit-learn Metrics |
-| **UI Framework** | Streamlit |
-| **Deployment Utility** | joblib, pickle, Git LFS |
+| **Embeddings** | ONNX MiniLM-L6-V2 (Lightweight Local) |
+| **Backend & UI** | Streamlit |
+| **Model Persistence** | Joblib, Pickle |
 
 ---
 
-### Milestones & Deliverables
+## 📈 System Evolution
 
-#### Milestone 1: Core ML Pipeline Development (Mid-Sem Focus)
-**Objective:** To establish a robust machine learning pipeline for predicting 'Fast DC Charger' status, focusing on data preparation, initial model selection, and handling class imbalance.
+### Phase 1: Core ML Pipeline (Milestone 1)
+- Developed baseline models using RandomForest and XGBoost.
+- Implemented class imbalance handling (`class_weight='balanced'`) to address the rarity of Fast DC Chargers in the dataset.
+- Established primary preprocessing and evaluation metrics (ROC AUC, F1-score).
 
-**Key Deliverables:**
-- **Problem Understanding & Business Context**: Defined the importance of classifying Fast DC Chargers for efficient EV infrastructure planning and user guidance.
-- **Data Cleaning & Preprocessing**: Handled missing values, removed duplicates, encoded categorical features, and scaled numerical features.
-- **Initial Model Training**: Developed baseline RandomForest and XGBoost models.
-- **Class Imbalance Handling**: Implemented `class_weight='balanced'` for RandomForest and `scale_pos_weight` for XGBoost to address the minority class issue.
-- **Local Application with UI**: (Awaiting Streamlit deployment success).
-- **Model Performance Evaluation Report**: Initial reports for RandomForest (Initial, Balanced) and XGBoost models (Accuracy, ROC AUC, Precision, Recall, F1-score).
+### Phase 2: Optimized Solution (Milestone 2)
+- **Advanced Feature Engineering**: Interaction terms (Lat x Lon) and squared terms (Ports²) to capture non-linear relationships.
+- **Hyperparameter Tuning**: Optimized models via `RandomizedSearchCV`.
+- **Ensemble Modeling**: Created a weighted probability-averaging ensemble for superior recall.
 
-#### Milestone 2: Optimized & Deployable Solution (End-Sem Focus)
-**Objective:** To enhance model accuracy, particularly for the minority class, through advanced feature engineering and ensemble methods, culminating in a publicly deployable Streamlit application.
-
-**Key Deliverables:**
-- **Advanced Feature Engineering**: Implemented interaction terms (`latitude_x_longitude`, `ports_x_latitude`, `ports_x_longitude`) and squared terms (`latitude_squared`, `longitude_squared`, `ports_squared`).
-- **Hyperparameter Tuning**: Optimized the RandomForest model using `RandomizedSearchCV`.
-- **Optimal Classification Thresholding**: Identified and applied optimal probability thresholds for both RandomForest and XGBoost models to maximize minority class F1-score.
-- **Ensemble Model Creation**: Developed a simple probability-averaging ensemble model combining optimized RandomForest and XGBoost predictions.
-- **Final Model Performance Report**: Comprehensive comparison of all models, highlighting the superior performance of the Ensemble Model in terms of ROC AUC and minority class recall.
-- **Publicly Deployed Application**: A Streamlit application hosted on Streamlit Community Cloud for interactive predictions.
-- **GitHub Repository & Complete Codebase**: The project's code, models, and necessary files committed to GitHub, including `requirements.txt` and Git LFS for large model artifacts.
-
+### Phase 3: Agentic Integration (Current)
+- Wrapped the ML pipeline into a LangChain Tool.
+- Integrated a RAG layer for "Knowledge-on-Demand".
+- Implemented the LangGraph state machine to handle multi-turn information gathering.
 
 ---
 
-### Evaluation Criteria
+## ⚙️ Setup & Installation
 
-| Phase | Weight | Criteria |
-| :--- | :--- | :--- |
-| **Mid-Sem** | 25% | Data preprocessing quality, Initial ML model application, Effective class imbalance handling, Initial UI usability, Clear evaluation metrics. |
-| **End-Sem** | 30% | Impact of advanced feature engineering, Effectiveness of hyperparameter tuning, Robustness of ensemble method, Clarity of Streamlit application, Successful deployment & accessibility, Comprehensive code documentation. |
+### 1. Clone the Repository
+```bash
+git clone https://github.com/garariya/EV_charging_station_model.git
+cd EV_charging_station_model
+```
 
----
+### 2. Install Dependencies
+It is recommended to use a virtual environment.
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-### How to Run Locally
+### 3. Model & Data Setup
+Ensure the following artifacts are in the root directory:
+- `rf_balanced_retrained_fe.joblib`
+- `xgb_cs_retrained_fe.joblib`
+- `scaler.joblib`
+- `label_encoder.pkl`
+- `optimal_threshold.pkl`
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/garariya/EV_charging_station_model.git
-    cd EV_charging_station_model
-    ```
-2.  **Install Git LFS** (if not already installed, for model files):
-    ```bash
-    git lfs install
-    git lfs pull
-    ```
-3.  **Create a virtual environment** (recommended):
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows: `venv\Scripts\activate`
-    ```
-4.  **Install dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-5.  **Run the Streamlit application**:
-    ```bash
-    streamlit run app.py
-    ```
-    Your application will open in your web browser.
+### 4. Run the Application
+```bash
+streamlit run app.py
+```
 
 ---
 
-### Publicly Deployed Application
-
-https://evchargingstationmodel-atxappj73smuikjcggqwnxg.streamlit.app/
-
+## 🤖 How to Interact with the Agent
+1. **Provide a Gemini API Key**: In the sidebar, enter your Google Gemini API key to activate the agent.
+2. **Chat Naturally**: You can ask questions like *"What is the difference between AC and DC charging?"* and the agent will use the RAG tool.
+3. **Run a Prediction**: If you ask *"Can you predict a station for me?"*, the agent will begin a guided workflow, asking you for the location and port details one by one.
+4. **Final Verdict**: Once all data is collected, the agent will run the ensemble model and explain the result.
 
 ---
 
+## 👥 Contributors
+Developed as part of a team effort focusing on Intelligent Intervention in EV infrastructure.
 
+**Maintained by**: [garariya](https://github.com/garariya)
