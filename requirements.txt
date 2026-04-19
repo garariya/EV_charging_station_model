@@ -2,7 +2,7 @@ python-dotenv
 protobuf==3.20.3
 streamlit
 
-scikit-learn==1.6.1
+scikit-learn
 xgboost
 pandas
 numpy<2.0

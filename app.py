@@ -9,13 +9,34 @@ import numpy as np
 # Fix for Protobuf TypeError on Streamlit Cloud
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
+# Block Telemetry globally to prevent PostHog 'capture()' parameter errors in Chroma
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["POSTHOG_DISABLED"] = "1"
+os.environ["DO_NOT_TRACK"] = "1"
+
+# Monkeypatch PostHog to gracefully handle existing instances
+try:
+    import posthog
+    posthog.capture = lambda *args, **kwargs: None
+except ImportError:
+    pass
+
+import warnings
+try:
+    from sklearn.exceptions import InconsistentVersionWarning
+    warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+except ImportError:
+    pass
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*LangGraphDeprecatedSince.*")
+
 from dotenv import load_dotenv
 load_dotenv()
 
 # LangChain / LangGraph Imports
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langgraph.prebuilt import create_react_agent  # noqa: will migrate when stable
+from langgraph.prebuilt import create_react_agent
 from langchain_chroma import Chroma
 from langchain_core.tools import tool
 
@@ -74,8 +95,7 @@ from langchain_core.embeddings import Embeddings
 
 class MiniLMEmbeddingsWrapper(Embeddings):
     def __init__(self):
-        # chromadb 0.4.24: embedding_functions is a flat module, not a package
-        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+        from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
         self.ef = ONNXMiniLM_L6_V2()
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
