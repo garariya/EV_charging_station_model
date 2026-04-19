@@ -1,15 +1,11 @@
 python-dotenv
 protobuf==3.20.3
 streamlit
-
 scikit-learn==1.6.1
 xgboost
 pandas
 numpy<2.0
-seaborn
-matplotlib
 joblib
-pyngrok
 langchain
 langchain-community
 langgraph
