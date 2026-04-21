@@ -258,4 +258,6 @@ if prompt := st.chat_input("Ask about EV charging standards or request a Fast DC
                     st.markdown(final_text)
                     
                 except Exception as e:
-                    st.error(f"Agent Processing Error: {str(e)}")
+                    st.error(f"Agent Error: {str(e)}")
+                    st.session_state.messages.append(AIMessage(content=f"Error: {str(e)}"))
+                    
