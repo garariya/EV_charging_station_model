@@ -33,7 +33,7 @@ The architecture follows the ReAct (Reasoning and Acting) paradigm, enabling the
 
 | Layer               | Technology                |
 | ------------------- | ------------------------- |
-| Agent Framework     | LangGraph, LangChain      |
+| Agent Framework     | LangGraph₹    |
 | Core LLM            | Google Gemini (1.5-flash) |
 | Vector Database     | ChromaDB                  |
 | Machine Learning    | Scikit-learn, XGBoost     |
